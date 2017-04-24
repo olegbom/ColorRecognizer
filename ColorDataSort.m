@@ -1,19 +1,21 @@
-%% Открытие данных
+function colorData = ColorDataSort(data,info)
+
 
 eventLength = length( info.annotation.event);
 
-colorData.Red = zeros(1,eventLength);
-colorData.Blue = zeros(1,eventLength);
+colorData.Color = zeros(eventLength,2);
+
+
 
 channelsCount = 21;
 sampleCount = round(info.samplerate(1) * 0.5);
 colorEventCount = 0;
 
 for i = 1:eventLength
-    event = info.annotation.event(i);
-    if contains(event, '(1)')  == 1 
+    name = info.annotation.event(i);
+    if strfind(name{1}, '(1)')  >= 1
         colorEventCount = colorEventCount + 1;
-        colorData.Red(colorEventCount) = 1;
+        colorData.Color(colorEventCount,1) = 1;
         
         bufer = zeros(channelsCount, sampleCount);
         sampleStart = round(info.samplerate(1) * (info.annotation.starttime(i)-0.05));
@@ -23,9 +25,9 @@ for i = 1:eventLength
         colorData.Data{colorEventCount} = bufer;
         
         
-    elseif contains(event, '(2)') == 1 
+    elseif strfind(name{1}, '(2)') >= 1
         colorEventCount = colorEventCount + 1;
-        colorData.Blue(colorEventCount) = 1;
+        colorData.Color(colorEventCount,2) = 1;
         
         bufer = zeros(channelsCount, sampleCount);
         sampleStart = round(info.samplerate(1) * (info.annotation.starttime(i)-0.05));
@@ -36,8 +38,8 @@ for i = 1:eventLength
         
     end
 end
-colorData.Red = colorData.Red(1:colorEventCount);
-colorData.Blue = colorData.Blue(1:colorEventCount);
+colorData.Color = colorData.Color(1:colorEventCount,:);
+
 
 %% dwt
 
