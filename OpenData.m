@@ -1,0 +1,1 @@
+[data, info] = readedf('d:\Treasury\Study\ЭЭГ\Цвета\Мухуров\170417_0014_EEG.edf');
