@@ -1,0 +1,115 @@
+---
+title: "Использование языка R для анализа ЭЭГ"
+output:
+  html_document: default
+  html_notebook: default
+  pdf_document: default
+---
+
+Подключение библиотек
+---
+```{r, comment='library', results='markup'}
+library("edf")
+library("xgboost")
+
+```
+
+Функция открытия файла формата edf
+---
+Открываем файлы из текущей директории
+```{r, comment='openEeg', results='markup'}
+openEeg <- function(shortfilename){
+  datafile = paste(getwd(), shortfilename, sep = '/')
+  eeg = read.edf(datafile)
+  return(eeg)
+}
+```
+
+Функция создания обучающей выборки из ЭЭГ
+---
+
+```{r, comment='StructEegData', results='markup'}
+
+structEegData <- function(eeg){
+  
+  numberOfStimuli = grep("\\([12]\\)", eeg$events$annotation) # Находим те события, которые отвечают за стимул
+  stimuliCount = length(numberOfStimuli) 
+  
+  furiePointsCount = 70;
+  output = numeric(stimuliCount)
+  
+  ## Подготавливаю матрицу для фходных данных для обучения
+  input = matrix(data = 0, nrow = stimuliCount, ncol = 21*furiePointsCount*2)
+  
+  sampleRate = eeg$header.signal$EEG_Fp1$samplingrate;
+  
+  ## Анализ происходит по 0.5 сек
+  samplesCount = round(sampleRate * 0.5)
+  
+  counter = 0;
+  
+  for (i in numberOfStimuli)
+  {
+    counter = counter + 1
+    eegSample = numeric(21*furiePointsCount*2)
+    onSet = round((eeg$events$onset[i] - 0.05)*sampleRate)
+    for (j in 1:21)
+    {
+      ## Изымаем кусочек сигналад для анализа
+      buffer = eeg$signal[[j]]$data[onSet:(onSet + samplesCount - 1)]
+      ## Рассчитываем БПФ
+      furie = fft(buffer, inverse = FALSE)
+      
+      ## Вводим амплитуду спектра в обучающую выборку
+      eegSample[(1 + (j - 1)*furiePointsCount*2):((j*2 - 1)*furiePointsCount)] <-
+        log10(Mod(furie[1:furiePointsCount]))
+      ## Вводим фазу спектра в обучающую выборку
+      eegSample[(1 + (j*2 - 1)*furiePointsCount):(j*furiePointsCount*2) ] <-
+        Arg(furie[1:furiePointsCount])
+    }
+    
+    input[counter,] = eegSample
+    ## Выход 0 - показали синий экран, 1 - показали красный
+    output[counter] = as.numeric(grepl("\\(1\\)", eeg$events$annotation[i]));
+  }
+  data = list(x = input, y = output);
+  return(data)
+}
+```
+
+Открытие данных
+---
+Открывает данные исследования с помощью созданнх функций
+```{r, comment='OpenData', results='markup'}
+dataFrame1 <- structEegData(openEeg("Мухуров/170417_0014_EEG.edf"))
+dataFrame2 <- structEegData(openEeg("Смирнов/24042017.edf"))
+```
+
+Обучение (Бустинг)
+---
+Подготавливаем данные и делим их на тренировочные и тестовые данные
+```{r}
+input = rbind(dataFrame1$x, dataFrame2$x)
+output = c(dataFrame1$y, dataFrame2$y)
+frameCount = length(output)
+
+trainIndex = runif(frameCount) > 0.1
+
+inputTrain = input[trainIndex,]
+inputTest = input[!trainIndex,]
+
+outputTrain = output[trainIndex]
+outputTest = output[!trainIndex]
+
+dtrain = xgb.DMatrix(data = inputTrain, label = outputTrain)
+dtest = xgb.DMatrix(data = inputTest, label = outputTest)
+watchlist = list(train = dtrain, test = dtest)
+```
+Сам бустинг
+```{r}
+
+bst <- xgb.train(data = dtrain,  max.depth = 2, eps = 1, nthread = 2, nround = 3, objective = "binary:logistic", watchlist = watchlist)
+
+```
+
+

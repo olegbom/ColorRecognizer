@@ -1,0 +1,80 @@
+\documentclass{article}
+
+\begin{document}
+\SweaveOpts{concordance=TRUE}
+ 
+Загрузка данных и их открытие данных 
+
+<<OpenData, echo=TRUE, results='hold'>>=
+library("edf")
+library("tidyverse")
+
+openEeg <- function(shortfilename){
+  datafile = paste(getwd(), shortfilename, sep = '/')
+  eeg = read.edf(datafile)
+  return(eeg)
+}
+
+structEegData <- function(eeg){
+  len = length(eeg$events$annotation)
+  numberOfStimuli = grep("\\([12]\\)", eeg$events$annotation)
+  stimuliCount = length(numberOfStimuli)
+  
+  furiePointsCount = 70;
+  output = numeric(stimuliCount)
+  input = matrix(data = 0, nrow = stimuliCount, ncol = 21*furiePointsCount*2)
+  
+  sampleRate = eeg$header.signal$EEG_Fp1$samplingrate;
+  samplesCount = round(sampleRate * 0.5)
+  
+  counter = 0;
+  
+  for (i in numberOfStimuli)
+  {
+    counter = counter + 1
+    eegSample = numeric(21*furiePointsCount*2)
+    onSet = round((eeg$events$onset[i] - 0.05)*sampleRate)
+    for (j in 1:21)
+    {
+      buffer = eeg$signal[[j]]$data[onSet:(onSet + samplesCount - 1)]
+      furie = fft(buffer, inverse = FALSE)
+      eegSample[(1 + (j - 1)*furiePointsCount*2):((j*2 - 1)*furiePointsCount)] <-
+        log10(Mod(furie[1:furiePointsCount]))
+      eegSample[(1 + (j*2 - 1)*furiePointsCount):(j*furiePointsCount*2) ] <-
+        Arg(furie[1:furiePointsCount])
+    }
+    
+    input[counter,] = eegSample
+    output[counter] = as.numeric(grepl("\\(1\\)", eeg$events$annotation[i]));
+  }
+  data = list(x = input, y = output);
+  return(data)
+}
+
+dataFrame1 <- "Мухуров/170417_0014_EEG.edf" %>% openEeg %>% structEegData
+dataFrame2 <- "Смирнов/24042017.edf" %>% openEeg %>% structEegData
+
+@
+
+
+<<Test, echo=TRUE, results='markup'>>=
+library(xtable)
+data("tli")
+variable1 <- 1
+variable2 = 2
+hello_txt <- "Hello world" # just to illustrate the markup
+@
+
+I've now created two variables, one with the value \Sexpr{variable1}
+and one with the value \Sexpr{variable2}. I've used two different 
+assignment operators, the $<-$ and the $=$. The $<-$ is preferred because 
+it gives a natural understanding of assignment since the $<-$ looks 
+like an arrow while $=$ can be confused with equal (that usually 
+is represented by two equal signs "$==$").
+
+<<Add the variables, echo=FALSE, results='markup'>>=
+xtable(tli[1:10, ])
+@
+
+
+\end{document}
