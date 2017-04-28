@@ -11,7 +11,7 @@ output:
 ```{r, comment='library', results='markup'}
 library("edf")
 library("xgboost")
-
+library("signal")
 ```
 
 Функция открытия файла формата edf
@@ -30,48 +30,58 @@ openEeg <- function(shortfilename){
 
 ```{r, comment='StructEegData', results='markup'}
 
-structEegData <- function(eeg){
+structEegData <- function(eeg){ 
+  
+  sampleRate = eeg$header.signal$EEG_Fp1$samplingrate;
+  bt <- butter(4, W =  c(45/sampleRate*2, 55/sampleRate*2), type = 'stop')
+  btlow <- butter(8, W = 30/sampleRate*2, type = 'low')
+  
+  for (j in 1:21)
+  {
+     eeg$signal[[j]]$data = filter(bt, eeg$signal[[j]]$data)
+     eeg$signal[[j]]$data = filter(btlow, eeg$signal[[j]]$data)
+  }
   
   numberOfStimuli = grep("\\([12]\\)", eeg$events$annotation) # Находим те события, которые отвечают за стимул
   stimuliCount = length(numberOfStimuli) 
   
-  furiePointsCount = 70;
+
   output = numeric(stimuliCount)
   
   ## Подготавливаю матрицу для фходных данных для обучения
-  input = matrix(data = 0, nrow = stimuliCount, ncol = 21*furiePointsCount*2)
   
-  sampleRate = eeg$header.signal$EEG_Fp1$samplingrate;
+  
+ 
   
   ## Анализ происходит по 0.5 сек
   samplesCount = round(sampleRate * 0.5)
-  
+  input = matrix(data = 0, nrow = 21, ncol = samplesCount*2)
   counter = 0;
   
   for (i in numberOfStimuli)
   {
-    counter = counter + 1
-    eegSample = numeric(21*furiePointsCount*2)
-    onSet = round((eeg$events$onset[i] - 0.05)*sampleRate)
+    counter = counter +1;
+    onSet = round((eeg$events$onset[i])*sampleRate)
+    buffer = matrix(data = 0, nrow = 21, ncol = samplesCount);
     for (j in 1:21)
     {
-      ## Изымаем кусочек сигналад для анализа
-      buffer = eeg$signal[[j]]$data[onSet:(onSet + samplesCount - 1)]
-      ## Рассчитываем БПФ
-      furie = fft(buffer, inverse = FALSE)
-      
-      ## Вводим амплитуду спектра в обучающую выборку
-      eegSample[(1 + (j - 1)*furiePointsCount*2):((j*2 - 1)*furiePointsCount)] <-
-        log10(Mod(furie[1:furiePointsCount]))
-      ## Вводим фазу спектра в обучающую выборку
-      eegSample[(1 + (j*2 - 1)*furiePointsCount):(j*furiePointsCount*2) ] <-
-        Arg(furie[1:furiePointsCount])
+      buffer[j,] = eeg$signal[[j]]$data[onSet:(onSet + samplesCount - 1)]
+    }
+    if(grepl("\\(1\\)", eeg$events$annotation[i]))
+    {
+      input[,1:samplesCount] = input[,1:samplesCount] + buffer;
+    }
+    else
+    {
+      input[,(samplesCount+1):(samplesCount*2)] = input[,(samplesCount+1):(samplesCount*2)] + buffer;
     }
     
-    input[counter,] = eegSample
-    ## Выход 0 - показали синий экран, 1 - показали красный
+   
     output[counter] = as.numeric(grepl("\\(1\\)", eeg$events$annotation[i]));
+    
   }
+  input[,1:samplesCount] = input[,1:samplesCount]/sum(output);
+  input[,(samplesCount+1):(samplesCount*2)] = input[,(samplesCount+1):(samplesCount*2)]/sum(1-output); 
   data = list(x = input, y = output);
   return(data)
 }
@@ -83,6 +93,9 @@ structEegData <- function(eeg){
 ```{r, comment='OpenData', results='markup'}
 dataFrame1 <- structEegData(openEeg("Мухуров/170417_0014_EEG.edf"))
 dataFrame2 <- structEegData(openEeg("Смирнов/24042017.edf"))
+dataFrame3 <- structEegData(openEeg("Кайдак/170428_0019_EEG_redblue.edf"))
+dataFrame3 <- structEegData(openEeg("Кайдак/170428_0019_EEG_redblue.edf"))
+## d:\EEG\ColorRecognizer\Reeg\Тестовые по реальным фотостимуляциям\170428_000008_EEG.edf
 ```
 
 Обучение (Бустинг)
@@ -110,6 +123,11 @@ watchlist = list(train = dtrain, test = dtest)
 
 bst <- xgb.train(data = dtrain,  max.depth = 3, eps = 1, nthread = 2, nround = 3, objective = "binary:logistic", watchlist = watchlist)
 
+```
+```{r}
+nChan = 18
+plot((1:250)/500,dataFrame3$x[nChan,1:250], type = 'l', col = 'blue')
+lines((1:250)/500,dataFrame3$x[nChan,251:500], type = 'l', col='red')
 ```
 
 
